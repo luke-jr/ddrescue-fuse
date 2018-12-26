@@ -34,7 +34,12 @@ class DDRescueProcess:
 	def __del__(self):
 		self.stop_activity()
 	
+	def start_activity(self, extra_argv):
+		self.output_cleaner = subprocess.Popen(('sed', r's/\r\|\x1B\[A//g'), stdin=subprocess.PIPE, bufsize=0)
+		self.child = subprocess.Popen(self.base_argv + extra_argv, stdout=self.output_cleaner.stdin, stderr=subprocess.STDOUT)
+	
 	def stop_activity(self):
+		if not hasattr(self, 'child'): return
 		self.logger.info('Interrupting ddrescue')
 		self.child.send_signal(signal.SIGINT)
 		self.child.wait()
@@ -42,12 +47,12 @@ class DDRescueProcess:
 	
 	def do_background(self):
 		self.logger.info('Starting background ddrescue')
-		self.child = subprocess.Popen(self.base_argv + ('-r', '-1',))
+		self.start_activity( ('-r', '-1',) )
 	
 	def recover_bytes(self, pos, size):
 		self.stop_activity()
 		self.logger.info('Starting ddrescue with domain 0x%x-0x%x' % (pos, pos + size - 1))
-		self.child = subprocess.Popen(self.base_argv + ('-r', '-1', '--input-position', str(pos), '--size', str(size)))
+		self.start_activity( ('-r', '-1', '--input-position', str(pos), '--size', str(size)) )
 		self.child.wait()
 		assert not self.child.returncode
 		self.do_background()
@@ -209,11 +214,12 @@ def parse_args():
 
 def main():
 	options = parse_args()
+	logging.basicConfig(format='%(asctime)-23s %(levelname)-7s %(name)s: %(message)s')
 	if options.debug:
-		logging.basicConfig(level=logging.DEBUG)
+		logging.getLogger().setLevel(logging.DEBUG)
 		logging.getLogger().debug('Debug logging enabled')
 	else:
-		logging.basicConfig(level=logging.INFO)
+		logging.getLogger().setLevel(logging.INFO)
 	
 	fs = DDRescueFS(options)
 	fuse_options = set(llfuse.default_options)
