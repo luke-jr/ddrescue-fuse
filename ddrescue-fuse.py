@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import argparse
+import errno
 import fcntl
 import io
 import llfuse
@@ -32,6 +33,7 @@ class DDRescueProcess:
 	def __init__(self, options):
 		self.logger = logging.getLogger('DDRescueProcess')
 		self.base_argv = ('ddrescue', options.source, options.image, options.mapfile, *shlex.split(options.ddrescue_options))
+		self.timeout_recovery = options.timeout_recovery
 		self.do_background()
 	
 	def __del__(self):
@@ -54,11 +56,20 @@ class DDRescueProcess:
 	
 	def recover_bytes(self, pos, size):
 		self.stop_activity()
-		self.logger.info('Starting ddrescue with domain 0x%x-0x%x' % (pos, pos + size - 1))
+		if self.timeout_recovery:
+			req_timeout = (size + 511) // 512 * self.timeout_recovery
+			req_timeout += 1  # time to read/write mapfile
+		else:
+			req_timeout = None
+		self.logger.info('Starting ddrescue with domain 0x%x-0x%x (timeout after %u seconds)' % (pos, pos + size - 1, req_timeout))
 		self.start_activity( ('-r', '-1', '--input-position', str(pos), '--size', str(size)) )
-		self.child.wait()
-		assert not self.child.returncode
-		print('\n' * ddrescue_pollution)
+		try:
+			self.child.wait(timeout=req_timeout)
+		except subprocess.TimeoutExpired:
+			self.stop_activity()
+		else:
+			assert not self.child.returncode
+			print('\n' * ddrescue_pollution)
 		self.do_background()
 
 class DDRescueFS(llfuse.Operations):
@@ -187,7 +198,8 @@ class DDRescueFS(llfuse.Operations):
 		have_data = self.read_mapfile(pos, size)
 		if not have_data:
 			self.process.recover_bytes(pos, size)
-			assert self.read_mapfile(pos, size)
+			if not self.read_mapfile(pos, size):
+				raise llfuse.FUSEError(errno.EIO)
 		
 		with open(self.image, 'rb') as f:
 			assert pos == f.seek(pos, io.SEEK_SET)
@@ -213,6 +225,7 @@ def parse_args():
 	parser.add_argument('--ddrescue-options', help='Additional options for ddrescue', default='')
 	parser.add_argument('--debug', action='store_true', default=False, help='Enable debugging output')
 	parser.add_argument('--debug-fuse', action='store_true', default=False, help='Enable FUSE debugging output')
+	parser.add_argument('--timeout-recovery', type=int, default=None, help='Give up recovery after N seconds per 512 bytes')
 	
 	return parser.parse_args()
 
