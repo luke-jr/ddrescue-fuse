@@ -58,6 +58,7 @@ class DDRescueProcess:
 		self.start_activity( ('-r', '-1', '--input-position', str(pos), '--size', str(size)) )
 		self.child.wait()
 		assert not self.child.returncode
+		print('\n' * ddrescue_pollution)
 		self.do_background()
 
 class DDRescueFS(llfuse.Operations):
