@@ -10,6 +10,9 @@ import signal
 import stat
 import struct
 import subprocess
+import sys
+
+ddrescue_pollution = 5
 
 def get_device_size(dev):
 	# NOTE: not ideal, as it may cause the OS to try buffering stuff
@@ -35,8 +38,7 @@ class DDRescueProcess:
 		self.stop_activity()
 	
 	def start_activity(self, extra_argv):
-		self.output_cleaner = subprocess.Popen(('sed', r's/\r\|\x1B\[A//g'), stdin=subprocess.PIPE, bufsize=0)
-		self.child = subprocess.Popen(self.base_argv + extra_argv, stdout=self.output_cleaner.stdin, stderr=subprocess.STDOUT)
+		self.child = subprocess.Popen(self.base_argv + extra_argv)
 	
 	def stop_activity(self):
 		if not hasattr(self, 'child'): return
@@ -44,6 +46,7 @@ class DDRescueProcess:
 		self.child.send_signal(signal.SIGINT)
 		self.child.wait()
 		assert self.child.returncode in (0, -signal.SIGINT)
+		print('\n' * ddrescue_pollution)
 	
 	def do_background(self):
 		self.logger.info('Starting background ddrescue')
@@ -214,7 +217,11 @@ def parse_args():
 
 def main():
 	options = parse_args()
-	logging.basicConfig(format='%(asctime)-23s %(levelname)-7s %(name)s: %(message)s')
+	sys.stderr.write('\n' * ddrescue_pollution)
+	sys.stderr.flush()
+	term_up = '\x1B[A'
+	clear_to_eol = '\x1B[K'
+	logging.basicConfig(format='\r' + (term_up * ddrescue_pollution) + '%(asctime)-23s %(levelname)-7s %(name)s: %(message)s' + clear_to_eol + ('\n' * ddrescue_pollution))
 	if options.debug:
 		logging.getLogger().setLevel(logging.DEBUG)
 		logging.getLogger().debug('Debug logging enabled')
