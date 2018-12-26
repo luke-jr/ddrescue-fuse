@@ -63,6 +63,7 @@ class DDRescueFS(llfuse.Operations):
 		self.filename = b'image'
 		self.inode = llfuse.ROOT_INODE + 1
 		self.process = DDRescueProcess(options)
+		self.done_cache = {}
 	
 	def getattr(self, inode, ctx=None):
 		entry = llfuse.EntryAttributes()
@@ -123,6 +124,13 @@ class DDRescueFS(llfuse.Operations):
 	
 	def read_mapfile(self, pos, size):
 		self.logger.debug('Looking for 0x%x-0x%x (%u bytes)' % (pos, pos + size - 1, size))
+		
+		for (c_pos, c_size) in self.done_cache.items():
+			if c_pos > pos: continue
+			if c_pos + c_size - 1 < pos: continue
+			if c_pos + c_size < pos + size: continue
+			return True
+		
 		current_pos = None
 		# NOTE: quietly assumes no overlapping regions in mapfile
 		found = 0
@@ -144,6 +152,9 @@ class DDRescueFS(llfuse.Operations):
 				assert line[1][:2] == '0x'
 				map_size = int(line[1], 0x10)
 				map_status = line[2]
+				if map_status == '+':
+					# cache it
+					self.done_cache[map_pos] = map_size
 				if map_pos + map_size - 1 < pos:
 					continue
 				if map_pos >= pos + size:
