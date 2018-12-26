@@ -6,12 +6,14 @@ import io
 import llfuse
 import logging
 import os
+import queue
 import shlex
 import signal
 import stat
 import struct
 import subprocess
 import sys
+import threading
 
 ddrescue_pollution = 5
 
@@ -63,13 +65,30 @@ class DDRescueProcess:
 			req_timeout = None
 		self.logger.info('Starting ddrescue with domain 0x%x-0x%x (timeout after %u seconds)' % (pos, pos + size - 1, req_timeout))
 		self.start_activity( ('-r', '-1', '--input-position', str(pos), '--size', str(size)) )
-		try:
-			self.child.wait(timeout=req_timeout)
-		except subprocess.TimeoutExpired:
-			self.stop_activity()
-		else:
+		
+		my_queue = queue.PriorityQueue()
+		
+		def child_completed():
+			self.child.wait()
+			my_queue.put(0)
+		waiter = threading.Thread(target=child_completed)
+		waiter.start()
+		
+		if self.timeout_recovery:
+			def timeout_occurred():
+				my_queue.put(2)
+			timer = threading.Timer(req_timeout, timeout_occurred)
+			timer.start()
+		
+		e = my_queue.get()
+		if e == 0:  # completed
+			if self.timeout_recovery: timer.cancel()
 			assert not self.child.returncode
 			print('\n' * ddrescue_pollution)
+		elif e == 2:  # timeout
+			self.logger.info('Recovery timed out')
+			self.stop_activity()
+		
 		self.do_background()
 
 class DDRescueFS(llfuse.Operations):
