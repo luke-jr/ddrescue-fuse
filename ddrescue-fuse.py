@@ -11,6 +11,7 @@ import stat
 import struct
 import subprocess
 import sys
+import threading
 
 ddrescue_pollution = 5
 
@@ -31,11 +32,13 @@ def get_device_size(dev):
 class DDRescueProcess:
 	def __init__(self, options):
 		self.logger = logging.getLogger('DDRescueProcess')
+		self.lock = threading.Lock()
 		self.base_argv = ('ddrescue', options.source, options.image, options.mapfile, *shlex.split(options.ddrescue_options))
 		self.do_background()
 	
 	def __del__(self):
-		self.stop_activity()
+		with self.lock:
+			self.stop_activity()
 	
 	def start_activity(self, extra_argv):
 		self.child = subprocess.Popen(self.base_argv + extra_argv)
@@ -47,18 +50,23 @@ class DDRescueProcess:
 		self.child.wait()
 		assert self.child.returncode in (0, -signal.SIGINT)
 		print('\n' * ddrescue_pollution)
+		del self.child
 	
 	def do_background(self):
 		self.logger.info('Starting background ddrescue')
 		self.start_activity( ('-r', '-1',) )
 	
-	def recover_bytes(self, pos, size):
+	def _recover_bytes(self, pos, size):
 		self.stop_activity()
 		self.logger.info('Starting ddrescue with domain 0x%x-0x%x' % (pos, pos + size - 1))
 		self.start_activity( ('-r', '-1', '--input-position', str(pos), '--size', str(size)) )
 		self.child.wait()
 		assert not self.child.returncode
 		self.do_background()
+	
+	def recover_bytes(self, *a, **ka):
+		with self.lock:
+			self._recover_bytes(*a, **ka)
 
 class DDRescueFS(llfuse.Operations):
 	def __init__(self, options):
@@ -72,6 +80,7 @@ class DDRescueFS(llfuse.Operations):
 		self.inode = llfuse.ROOT_INODE + 1
 		self.process = DDRescueProcess(options)
 		self.done_cache = {}
+		self.done_cache_lock = threading.Lock()
 	
 	def getattr(self, inode, ctx=None):
 		entry = llfuse.EntryAttributes()
@@ -133,11 +142,12 @@ class DDRescueFS(llfuse.Operations):
 	def read_mapfile(self, pos, size):
 		self.logger.debug('Looking for 0x%x-0x%x (%u bytes)' % (pos, pos + size - 1, size))
 		
-		for (c_pos, c_size) in self.done_cache.items():
-			if c_pos > pos: continue
-			if c_pos + c_size - 1 < pos: continue
-			if c_pos + c_size < pos + size: continue
-			return True
+		with self.done_cache_lock:
+			for (c_pos, c_size) in self.done_cache.items():
+				if c_pos > pos: continue
+				if c_pos + c_size - 1 < pos: continue
+				if c_pos + c_size < pos + size: continue
+				return True
 		
 		current_pos = None
 		# NOTE: quietly assumes no overlapping regions in mapfile
@@ -162,7 +172,8 @@ class DDRescueFS(llfuse.Operations):
 				map_status = line[2]
 				if map_status == '+':
 					# cache it
-					self.done_cache[map_pos] = map_size
+					with self.done_cache_lock:
+						self.done_cache[map_pos] = map_size
 				if map_pos + map_size - 1 < pos:
 					continue
 				if map_pos >= pos + size:
@@ -221,7 +232,7 @@ def main():
 	sys.stderr.flush()
 	term_up = '\x1B[A'
 	clear_to_eol = '\x1B[K'
-	logging.basicConfig(format='\r' + (term_up * ddrescue_pollution) + '%(asctime)-23s %(levelname)-7s %(name)s: %(message)s' + clear_to_eol + ('\n' * ddrescue_pollution))
+	logging.basicConfig(format='\r' + (term_up * ddrescue_pollution) + '%(asctime)-23s %(thread)x %(levelname)-7s %(name)s: %(message)s' + clear_to_eol + ('\n' * ddrescue_pollution))
 	if options.debug:
 		logging.getLogger().setLevel(logging.DEBUG)
 		logging.getLogger().debug('Debug logging enabled')
@@ -236,7 +247,7 @@ def main():
 	
 	llfuse.init(fs, options.mountpoint, fuse_options)
 	try:
-		llfuse.main(workers=1)
+		llfuse.main()
 	except:
 		llfuse.close(unmount=False)
 		raise
