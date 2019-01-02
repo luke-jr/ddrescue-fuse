@@ -256,11 +256,15 @@ def parse_args():
 
 def main():
 	options = parse_args()
-	sys.stderr.write('\n' * ddrescue_pollution)
-	sys.stderr.flush()
+	if not options.source is None:
+		sys.stderr.write('\n' * ddrescue_pollution)
+		sys.stderr.flush()
 	term_up = '\x1B[A'
 	clear_to_eol = '\x1B[K'
-	logging.basicConfig(format='\r' + (term_up * ddrescue_pollution) + '%(asctime)-23s %(levelname)-7s %(name)s: %(message)s' + clear_to_eol + ('\n' * ddrescue_pollution))
+	log_format = '%(asctime)-23s %(levelname)-7s %(name)s: %(message)s'
+	if not options.source is None:
+		log_format = '\r' + (term_up * ddrescue_pollution) + log_format + clear_to_eol + ('\n' * ddrescue_pollution)
+	logging.basicConfig(format=log_format)
 	if options.debug:
 		logging.getLogger().setLevel(logging.DEBUG)
 		logging.getLogger().debug('Debug logging enabled')
