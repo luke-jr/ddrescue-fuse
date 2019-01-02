@@ -63,7 +63,7 @@ class DDRescueProcess:
 			req_timeout += 1  # time to read/write mapfile
 		else:
 			req_timeout = None
-		self.logger.info('Starting ddrescue with domain 0x%x-0x%x (timeout after %u seconds)' % (pos, pos + size - 1, req_timeout))
+		self.logger.info('Starting ddrescue with domain 0x%x-0x%x (timeout after %s seconds)' % (pos, pos + size - 1, req_timeout))
 		self.start_activity( ('-r', '-1', '--input-position', str(pos), '--size', str(size)) )
 		
 		my_queue = queue.PriorityQueue()
