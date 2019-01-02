@@ -98,10 +98,14 @@ class DDRescueFS(llfuse.Operations):
 		self.options = options
 		self.image = options.image
 		self.mapfile = options.mapfile
-		self.size = get_device_size(options.source)
+		if options.source is None:
+			self.size = get_device_size(options.image)
+			self.process = None
+		else:
+			self.size = get_device_size(options.source)
+			self.process = DDRescueProcess(options)
 		self.filename = b'image'
 		self.inode = llfuse.ROOT_INODE + 1
-		self.process = DDRescueProcess(options)
 		self.done_cache = {}
 	
 	def getattr(self, inode, ctx=None):
@@ -216,6 +220,8 @@ class DDRescueFS(llfuse.Operations):
 	def get_bytes(self, pos, size):
 		have_data = self.read_mapfile(pos, size)
 		if not have_data:
+			if self.process is None:
+				raise llfuse.FUSEError(errno.EIO)
 			self.process.recover_bytes(pos, size)
 			if not self.read_mapfile(pos, size):
 				raise llfuse.FUSEError(errno.EIO)
@@ -238,7 +244,7 @@ def parse_args():
 	parser = argparse.ArgumentParser()
 	
 	parser.add_argument('mountpoint', help='Where to mount the file system')
-	parser.add_argument('--source', help='Source device', required=True)
+	parser.add_argument('--source', help='Source device', default=None)
 	parser.add_argument('--image', help='Image file', required=True)
 	parser.add_argument('--mapfile', help='Map file', required=True)
 	parser.add_argument('--ddrescue-options', help='Additional options for ddrescue', default='')
