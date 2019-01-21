@@ -223,7 +223,7 @@ class DDRescueFS(llfuse.Operations):
 			if self.process is None:
 				raise llfuse.FUSEError(errno.EIO)
 			self.process.recover_bytes(pos, size)
-			if not self.read_mapfile(pos, size):
+			if not self.read_mapfile(pos, size) and not self.options.failure_garbage:
 				raise llfuse.FUSEError(errno.EIO)
 		
 		with open(self.image, 'rb') as f:
@@ -251,6 +251,7 @@ def parse_args():
 	parser.add_argument('--debug', action='store_true', default=False, help='Enable debugging output')
 	parser.add_argument('--debug-fuse', action='store_true', default=False, help='Enable FUSE debugging output')
 	parser.add_argument('--timeout-recovery', type=int, default=None, help='Give up recovery after N seconds per 512 bytes')
+	parser.add_argument('--failure-garbage', action='store_true', default=False, help='If recovery fails, return data anyway (with garbage in failed regions)')
 	
 	return parser.parse_args()
 
