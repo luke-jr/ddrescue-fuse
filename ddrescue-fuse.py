@@ -275,6 +275,11 @@ def main():
 	fs = DDRescueFS(options)
 	fuse_options = set(llfuse.default_options)
 	fuse_options.add('fsname=ddrescuefs')
+	if not options.failure_garbage:
+		# Minimise read sizes to return as much good data as possible
+		fuse_options.add('max_read=512')
+	# Avoid readahead so we don't spend time recovering stuff we don't need
+	fuse_options.add('max_readahead=0')
 	if options.debug_fuse:
 		fuse_options.add('debug')
 	
